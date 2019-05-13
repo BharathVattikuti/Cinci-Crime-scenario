@@ -1,0 +1,445 @@
+---
+title: "Cincinnati Crime Scenario"
+author: "Bharath Vattikuti"
+date: "April 6, 2019"
+output: html_document
+---
+
+## Is Queen City safe for younger people? {.tabset}
+
+```{r echo=FALSE }
+knitr::include_graphics("C:/Users/bhara/Desktop/cincinnati.png")
+```
+
+Cincinnati is home to many prestigious universities and **9** Fortune 500 companies. With nine Fortune 500 company headquarters in the area, the region ranks in the United States Top 10 markets for number of Fortune 500 headquarters per million residents, higher than New York, Boston, Chicago or Los Angeles. So, Cincinnati became main attraction to college students and young professionals, who are looking to start their career or those looking to make their next big switch.
+
+Safety is one of the paramount factors people consider while making a switch. Cincinnati Police Department and Cincinnati Government has taken many initiatives to make Cincinnati a safer place. In this project, we are analyzing the crime scenario in Cincinnati over last 10 years (Mar 2010 to Mar 2019). Through this project we are trying to map the places which are more dangerous particularly for age groups below 30. 
+
+### Case Overview
+
+In order to find whether Cincinnati is a safer placer or not, I have obtained a crime dataset from Cincinnati open data portal. I will find the hidden patterns / trends associated with the data. I will find the answers to below questions to gain some helpful insights.
+
+1. Trend of crimes Y-O-Y
+2. Which months of the year are tend to be more dangerous
+3. Which day of week tend to have more incidents
+4. Which time of day is more dangerous to wnander around
+5. What time of weapon is most commonly used
+6. What kind of Offense is committed
+7. Which neighborhoods are more dangerous
+
+I will then dive deeper in to the worst neighborhoods to observe the above patterns and see if any thing in particular stands out. Doing this analysis will help the consumer make a better decision and remove any pre formed predjudices.
+
+I will made use of various R libraries to clean the data, perform data manipulations, perform the Exploratory Data Analysis to make reasonable assumptions on the safety in Queen city.
+
+### Packages Required 
+
+1. data.table package is used for fast reading of csv files
+2. tidyverse and dplyr packages are used for data manipulation
+3. DT and rmarkdown packages are used for styling purpose
+4. Leaflet package is used for plotting of maps
+
+```{r message = FALSE, warning = FALSE}
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(DT)
+library(rmarkdown)
+library(leaflet)
+```
+
+###Data {.tabset .tabset}
+
+#### Source of Data
+
+I has used the dataset released by City of Cincinnati under PDI (Police Data Initiative) Crime Incidents. The dataset can be found [here](https://data.cincinnati-oh.gov/Safer-Streets/PDI-Police-Data-Initiative-Crime-Incidents/k59e-2pvf)
+
+
+#### Data Importing
+
+
+```{r message = FALSE, warning = FALSE, results='hide'}
+
+# Import data from local machine
+cincy.data <- fread(file = "city_of_cincinnati_police_data_initiative_crime_incidents.csv")
+glimpse(cincy.data)
+``` 
+
+Our Dataset contains 355379 observations and 40 variables. Data is spread over 1991 to 2019. The data is stored and recorded in the Record Management System (RMS) which stores agency-wide data about low enforcement operations and is updated on a dialy basis. As per privacy laws, some data, for example, addresses and latitude longitude information has been masked before it was made public for use.
+
+#### Data Cleaning
+
+1. As I want ot concentrate only on the age groups below 30 years, firstly I would like to see the age groups present in the dataset, so that I can select the particular age groups
+```{r message = FALSE, warning = FALSE}
+table(cincy.data$VICTIM_AGE)
+```
+
+2. Based on the above output, I am selecting the agegroups required
+
+```{r message = FALSE, warning = FALSE}
+#Select particular age groups 
+cincy.data <-   filter(cincy.data, VICTIM_AGE == "18-25" | VICTIM_AGE == "26-30" | VICTIM_AGE == "UNDER 18" | VICTIM_AGE == "JUVENILE (UNDER 18)" )
+```
+
+3. Looking at the dataset, we observed that Date of Occurance of event is not easily readble. So, we changed the DATE_FROM column to more readable format and also so that it holds two values (Date of Occurance and Time of Occurance)
+
+```{r message = FALSE, warning = FALSE}
+
+#Establish time of occurence
+DATE_TIME_OCCURENCE <- substr(cincy.data$DATE_FROM, 1, 22)
+DATE_TIME_OCCURENCE <- (strptime(DATE_TIME_OCCURENCE, '%m/%d/%Y %I:%M:%S %p'))
+
+TIME_OCCURENCE <- substr(cincy.data$DATE_FROM, 12, 22)
+TIME_OCCURENCE <- as.difftime(TIME_OCCURENCE, '%I:%M:%S %p', units = "hours")
+
+#rounding the filed for future use 
+TIME_OCCURENCE <- round(TIME_OCCURENCE, 1)
+
+#Bind to Data Frame
+cincy.data <- cbind(cincy.data, DATE_TIME_OCCURENCE, TIME_OCCURENCE)
+
+#Creating a clomun which stores the year
+cincy.data <- cincy.data %>% mutate(Reported_year = substr(cincy.data$DATE_TIME_OCCURENCE, 1, 4))
+```
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+cincy.data <- cincy.data %>% filter(Reported_year >= 2010)
+```
+
+4. Next I want to filter the data so it matches with our requirement (Data after 2010). Also, as there is lot of missing data regarding Suspect attributes. So, I am dealing with data related to Victims.
+
+```{r message = FALSE, warning = FALSE}
+
+#Select only required columns to reduce the number of variables
+cincy.data <- cincy.data %>% select(INSTANCEID,DATE_TIME_OCCURENCE,TIME_OCCURENCE,
+                                    OFFENSE,LOCATION,DAYOFWEEK,CPD_NEIGHBORHOOD,WEAPONS,
+                                    LONGITUDE_X:VICTIM_GENDER,Reported_year)
+
+#Select required time frame
+
+cincy.data <- cincy.data %>% filter(DATE_TIME_OCCURENCE < "2019-03-06" & DATE_TIME_OCCURENCE > "2010-03-06")
+```
+
+
+5. Looking at the VICTIM_GENDER, we observed that Males and Females are identified in multiple ways. We are adjusting these values for easy interpretation.
+
+```{r warning = FALSE}
+# Finding unique names in the Gender column
+unique(cincy.data$VICTIM_GENDER)
+```
+
+```{r message = FALSE, warning = FALSE}
+
+# Updating the values so that FEMALE will be represented as F and Males will be represented as M
+
+cincy.data$VICTIM_GENDER <- ifelse(test = cincy.data$VICTIM_GENDER == "F - FEMALE" | cincy.data$VICTIM_GENDER == "FEMALE", yes =  "F", no = cincy.data$VICTIM_GENDER)
+```
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+cincy.data$VICTIM_GENDER <- ifelse(test = cincy.data$VICTIM_GENDER == "M - MALE" | cincy.data$VICTIM_GENDER == "MALE", yes =  "M", no = cincy.data$VICTIM_GENDER)
+```
+
+6. We could there are many kinds of weapons used and some of them belong to the same categories. Hence, trying to scale down the kind of weapon used
+
+```{r message = FALSE, warning = FALSE}
+cincy.data <- cincy.data %>%
+  mutate(WEAPONS = gsub(".*11.*", "FIREARM", WEAPONS)) %>% 
+  mutate(WEAPONS = gsub(".*12.*", "HANDGUN",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*13.*", "RIFLE",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*14.*", "SHOTGUN",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*15.*", "FIREARM",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*16.*", "FIREARM",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*17.*", "FIREARM",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*18.*", "BB AND PELLET GUNS",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*20.*", "KNIFE/CUTTING INSTRUMENT",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*30.*", "BLUNT OBJECT",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*35.*", "MOTOR VEHICLE",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*40.*", "PERSONAL WEAPON",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*60.*", "EXPLOSIVES",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*70.*", "DRUGS",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*80.*", "OTHER WEAPONS",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*U.*", "UNKNOWN",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*65.*", "FIRE/INCENDIARY DEVICE",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*50.*", "POISON",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*99.*", "NONE",  WEAPONS)) %>%
+  mutate(WEAPONS = gsub(".*85.*", "ASPHYXIATION",  WEAPONS))
+```
+
+7. Performing the scaling down for the type of offense as well
+
+``` {r message = FALSE, warning = FALSE}
+
+cincy.data <- cincy.data %>%
+  mutate(OFFENSE = gsub(".*ASSAULT.*", "ASSAULT", OFFENSE)) %>%
+  mutate(OFFENSE = gsub(".*BURGLARY.*", "BURGLARY", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*RAPE.*", "RAPE", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*ROBBERY.*", "ROBBERY", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*MURDER.*", "MURDER", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*ABDUCTION.*", "ABDUCTION", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*MENACING.*", "MENACING", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*FORGERY.*", "FORGERY", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*KIDNAPPING.*", "KIDNAPPING", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*ARSON.*", "ARSON", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*SEX.*", "SEX", OFFENSE))  %>% 
+  mutate(OFFENSE = gsub(".*INTIMID.*", "INTIMIDATION", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*HARRASS.*", "HARRASS", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*VANDALISM.*", "VANDALISM", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*THEFT.*", "THEFT", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*CRIMINAL.*", "CRIMINAL", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*DISORDERLY CONDUCT.*", "DISORDERLY CONDUCT", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*ENDANGERING CHILDREN.*", "ENDANGERING CHILDREN", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*VIOL.*", "VIOLATE PROTECTION ORDER", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*CREDIT CARD.*", "CREDIT CARD FRAUD", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*TELEPHONE HARRASSMENT.*", "TELEPHONE HARRASSMENT", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*PATIENT ABUSE.*", "PATIENT ABUSE", OFFENSE))  %>%
+  mutate(OFFENSE = gsub(".*UNAUTHORISED USE.*", "UNAUTHORISED USE", OFFENSE))
+```
+
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+size <- nrow(cincy.data)
+
+```
+
+
+8. Currently, our dataset has `r size` observations. No analysis is planned based on the victim race and the ethnicity. Hence, scaling down is not performed for these variables. Now, check for the missing values in the data.
+
+```{r message = FALSE, warning = FALSE}
+
+#Finding missing values in each column
+colSums(is.na(cincy.data))
+
+#Removing missing values
+cincy.data <- na.omit(cincy.data)
+
+```
+
+#### Final Dataset
+
+
+ After removing missing values, we have 113456 observations and 15 variables. We will use it as a final dataste to do further analysis. 
+
+```{r}
+
+#Final Dataset
+datatable(head(cincy.data,200),caption = "Cincy Crime Data ", class = 'cell-border stripe')
+```
+
+I am not converting some of the variables to factors at this stage. I will convert them dynamically when they are required.
+
+
+### Exploratory Analysis {.tabset .tabset}
+
+#### Data Overview
+
+We will explore the dataset and plot the trends for identifying some of the patterns
+
+* Trend of number of crimes over the years
+* Months with most crime
+* Most common type of Offense
+* Most common weapon used
+* Most dangerous neighbourhoods
+* Most dangerous hours
+* Trend amoing the selected age groups
+
+Below plot shows the trend on the number of incidents reported over years
+
+```{r warning = FALSE}
+ggplot(cincy.data) +
+  aes(x = Reported_year) +
+  geom_bar(stat = "count",fill = 'red') + 
+  geom_text(stat = "count",aes(label = ..count..),vjust = -0.5) +
+  labs(title = "Incidents reported YOY",x = "Year",y = "Number of Incidents") +
+  theme(axis.text.x = element_text(size = 10, angle = 60)) +
+  scale_y_continuous(limit = c(0,20000))
+```
+
+From the plot, we could observe that number of incidents reported have been gradually reducing since 2011 (except for 2014). However, the number of incidents remained almost same from 2015
+
+Below is the trend based on the month
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+month_names <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+           "Aug", "Sep", "Oct", "Nov", "Dec")
+```
+
+```{r message = FALSE, warning = FALSE}
+ggplot(cincy.data) +
+  aes(x = as.numeric(substr(cincy.data$DATE_TIME_OCCURENCE, 6, 7))) +
+  geom_bar(stat = "count",fill = 'red') + 
+  geom_text(stat = "count",aes(label = ..count..),vjust = -0.5) +
+  labs(title = "Number of incidents reported based on Month",x = "Month",y = "Number of Incidents") +
+  theme(axis.text.x = element_text(size = 10, angle = 60)) +
+  scale_x_discrete(limits = month_names) +
+  scale_y_continuous(limit = c(0,13000))
+```
+
+We can see that the months July to October has most number of incidents reported compared to other months. This is worrying to observe as these are the months new school year is starting. 
+
+
+Common Offense
+```{r message = FALSE, warning = FALSE}
+cincy.data %>% count(OFFENSE, sort = TRUE) %>% top_n(5)
+```
+
+Common Weapon used
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+cincy.data %>% count(WEAPONS, sort = TRUE) %>% filter(WEAPONS != "NONE" & WEAPONS != "UNKNOWN") %>% top_n(5)
+```
+
+Most dangerous neighborhoods
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+cincy.data %>% count(CPD_NEIGHBORHOOD, sort = TRUE) %>% top_n(5)
+```
+
+Dangerous Hours
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+cincy.data %>% count(TIME_OCCURENCE, sort = TRUE) %>% top_n(5)
+```
+
+Below are the statistics for the incidents reported based on the age group
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+table(cincy.data$VICTIM_AGE)
+```
+
+#### Further analysis on neighborhoouds
+
+Below are the most dangerous neighborhoods based on the number of incidents reported.
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+cincy.data %>% count(CPD_NEIGHBORHOOD, sort = TRUE) %>% top_n(5)
+```
+
+In order to do the further analysis, I am subsetting the data so that only the above shown neighborhoods are present
+```{r message = FALSE, warning = FALSE}
+sub.data <- cincy.data %>%
+  filter(cincy.data$CPD_NEIGHBORHOOD == "WESTWOOD" |
+           cincy.data$CPD_NEIGHBORHOOD == "WEST PRICE HILL" |
+           cincy.data$CPD_NEIGHBORHOOD == "EAST PRICE HILL" |
+           cincy.data$CPD_NEIGHBORHOOD == "AVONDALE" |
+           cincy.data$CPD_NEIGHBORHOOD == "FAIRVIEW")
+```
+
+Below plot shows the incident count in terms of histograms. Showing the trend in histograms will tend for easy comparison. Neighborhood "WESTWOOD" stands out for the incidents reported. The count in WESTWOOD is almost 2 times the incidetnts reported in FAIRVIEW
+
+```{r message = FALSE, warning = FALSE}     
+ggplot(sub.data, aes(factor(CPD_NEIGHBORHOOD), fill = CPD_NEIGHBORHOOD)) + 
+  geom_bar(stat = "count", position = "dodge") +
+  geom_text(stat = "count",aes(label = ..count..),vjust = -0.5) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs( y = "Number of Reported incidents",
+        x = "Neighborhoods",
+        title = "Most Dangerous Neighborhoods in Cincinnati") +
+  scale_y_continuous(limit = c(0,11000)) + 
+  guides(fill = guide_legend(title = "Neighborhood in Cincinnati"))
+```
+
+**Trends in these neigborhoods over Year to Year**
+
+This comparison will help us in understanding whether the crime has grown / subdued in the particular neighborhood over the years.
+
+```{r message = FALSE, warning = FALSE}
+sub.data %>% group_by(CPD_NEIGHBORHOOD, Reported_year) %>%
+  tally() %>%
+  ggplot(aes(x = Reported_year, y = n, group = CPD_NEIGHBORHOOD, color = CPD_NEIGHBORHOOD)) + geom_line() +
+  labs(y = "Number of Occurences",
+       x = "Years",
+       title = "Trend of Crimes in Cincinnati's Worst Neightborhoods",
+       color = "Neighborhood in Cincinnati")
+```
+
+Some of the important findings from above plot are
+
+* The crime rate is in downward trend in all the neighborhoods till 2014 / 2015. The crime rate has again gone up from 2015 to 2016. 
+* Westwood has constantly stood out in the number of incidents reported.
+* There is a gradual decrese in the number of incidents occured in "West Price Hill" and "East Price Hill" from 2016. Still, there overall count remains relitively high
+
+
+**Crime Trends in neighborhoods based on month of the year**
+
+```{r message = FALSE, warning = FALSE}
+month_name <- as.numeric(substr(sub.data$DATE_TIME_OCCURENCE, 6, 7))
+ sub.data <- cbind(sub.data, month_name)
+ sub.data$month <- as.factor(sub.data$month_name)
+ 
+ sub.data %>%
+   group_by(CPD_NEIGHBORHOOD, month_name) %>%
+   tally() %>%
+   ggplot(aes(x = month_name, y = n, group = CPD_NEIGHBORHOOD, color = CPD_NEIGHBORHOOD)) +    geom_line() + 
+   labs(y = "Number of Occurences",
+        x = "Months",
+        title = "Trend of Crimes in different months",
+        color = "Neighborhood") + 
+ scale_x_discrete(limits = month_names)
+```
+
+
+The crime trend in these areas is in accordance with the overall month over month trend marking July to September / October as the troublesome months. 
+
+
+**Crime Trends in neighborhoods based on time of the day**
+```{r message = FALSE, warning = FALSE}
+
+sub.data$TIME_OCCURENCE <- round(sub.data$TIME_OCCURENCE,digits =  0)
+
+sub.data %>% group_by(CPD_NEIGHBORHOOD, TIME_OCCURENCE) %>%
+  tally() %>%
+  ggplot(aes(x = TIME_OCCURENCE, y = n, group = CPD_NEIGHBORHOOD, color = CPD_NEIGHBORHOOD)) +
+  geom_point(alpha = .5) +
+  stat_smooth(aes(x = TIME_OCCURENCE, y = n),method = "lm", formula = y ~ poly(x, 10), se = FALSE) +
+  labs(y = "Number of Occurences",
+       x = "Time of day",
+       title = "Worst Times of Day in Cincinnati's Most Dangerous Neighborhoods",
+       color = "Neighborhood in Cincinnati")
+```
+
+The crime rate tends to go higher during late hours of the day. The trend remains relitively same for these neighborhoods as well.
+
+
+
+#### Maps
+
+We are plotting the incidents reported on the map of cincinnati to observe the heat areas on the map.
+
+Below map is plotted using leaflet package. Leaflet package uses the latitude and longtidue values and mark them as pointers on the map. We can cluster these markers based on the zoom level. The map which is generated below can be zoomed in further to check the incidents at neighborhood level / street level. You can even find the location (from which incident is reported) once you have zoomed in enough.
+
+
+```{r message = FALSE, warning = FALSE}
+leaflet() %>%  addTiles() %>%  addMarkers(lng = cincy.data$LONGITUDE_X,
+                                          lat = cincy.data$LATITUDE_X,
+                                          clusterOptions = markerClusterOptions())
+```
+
+From the very high level, we could see more incidents were reported near the clifton and downtown areas. This is understandable, as we have selected the data only for the ager groups below 30. Most of the people in that age group are either students or early career professionals and tend to live in more accessible areas like clifton or downtown.
+
+When zoomed in further, we could observe many incidents are reported in areas of Clifton heights and Over The Rhine (OTR)
+
+I am further adding an option to check the crime scenario based on the year. I am adding the map for the year 2018. But this funtinality can be extended to any year. 
+
+```{r message = FALSE, warning = FALSE}
+#Creating Function for the map by years
+
+map_year <- function(YEAR) {
+  cincy.data.subset <- cincy.data %>% filter(YEAR == Reported_year)
+  map_y <- leaflet() %>% addTiles() %>% 
+    addMarkers(lng = cincy.data.subset$LONGITUDE_X,
+               lat = cincy.data.subset$LATITUDE_X,
+               clusterOptions = markerClusterOptions())
+}
+```
+
+Map of year 2018
+```{r message = FALSE, warning = FALSE}
+(map_year("2018"))
+```
+
+To view map for different year, change the value between the " " in above code
+
+### Summary
+
+I have started the analysis by cleaning the dataset and subsetting the data as per our needs. We summarized the data at different levels to observe the trends / patterns. By looking at the YOY situation, I have found that there was a general downward trend to crime occurrences. I have then checked for the trends of Month over month, Day of the week, worst neighborhoods, which weapons were used the most, which offences were the most common and what time of the day that had the greatest number of occurrences. I have decided to do more detailed analysis surrounding the worst neighborhoods starting by simply plotting the worst of them to get a visual representation of how bad they really were. I have then checked the trends based on the different granules (Day of week, time of day, month of the year). Most of the analysis done on these neighborhoods are in line with the overall trend of cincinnati. 
+
+My analysis has lead me to beleive that Cincinnati is slowly but surely becoming a safe place to live. In addition to this conclusion, my analysis can help the general public to observe the trends of crime in their neighborhood. It can also help others (who are not familiar with cincinnati) to understand the crime scenario in cincinnati and help in making right decision (where to stay, which places to avoid). Finally, this can help the law enforcements officers to measure the effect of their efforts to curb the crime. 
+
+### Future Work
+
+The above work can be improved further by building an interactive Shiny app with the features of sliders and radio buttons. Building this app can be very helpful as the decisions can be taken the higher officials by just looking at the dashboard  or interacting with the dashboards as per requirement. I have been working on developing this shiny app. I will post it once I am done with that. 
