@@ -1,7 +1,6 @@
 library(dplyr)
 
-#setwd("C:/university of cincinnati/SPRING SEMESTER 2019/BANA 7047 DATA MINING II/Assignments/Final Project/Wine Quality")
-wine <- read.csv(file = "Project/winequality-white.csv", sep = ";")
+wine <- read.csv(file = "winequality-white.csv", sep = ";")
 
 wine$response <- as.ordered(ifelse(test = (wine$quality <= 4), 0, ifelse((wine$quality >= 7), 2 ,1)))
 table(wine$response)
