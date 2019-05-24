@@ -7,9 +7,6 @@ output: html_document
 
 ## Is Queen City safe for younger people? {.tabset}
 
-```{r echo=FALSE }
-knitr::include_graphics("C:/Users/bhara/Desktop/cincinnati.png")
-```
 
 Cincinnati is home to many prestigious universities and **9** Fortune 500 companies. With nine Fortune 500 company headquarters in the area, the region ranks in the United States Top 10 markets for number of Fortune 500 headquarters per million residents, higher than New York, Boston, Chicago or Los Angeles. So, Cincinnati became main attraction to college students and young professionals, who are looking to start their career or those looking to make their next big switch.
 
